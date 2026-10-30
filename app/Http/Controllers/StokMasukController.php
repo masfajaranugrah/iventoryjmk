@@ -14,9 +14,7 @@ use RuntimeException;
 
 class StokMasukController extends Controller
 {
-    public function __construct(private StockService $stock)
-    {
-    }
+    public function __construct(private StockService $stock) {}
 
     public function index(Request $request): View
     {
@@ -28,12 +26,12 @@ class StokMasukController extends Controller
             $search = trim($request->search);
             $query->where(function ($q) use ($search) {
                 $q->where('nama_pemasok', 'like', "%{$search}%")
-                  ->orWhere('user', 'like', "%{$search}%")
-                  ->orWhere('kode_transaksi', 'like', "%{$search}%")
-                  ->orWhereHas('barang', function ($b) use ($search) {
-                      $b->where('nama_barang', 'like', "%{$search}%")
-                        ->orWhere('kode_barang', 'like', "%{$search}%");
-                  });
+                    ->orWhere('user', 'like', "%{$search}%")
+                    ->orWhere('kode_transaksi', 'like', "%{$search}%")
+                    ->orWhereHas('barang', function ($b) use ($search) {
+                        $b->where('nama_barang', 'like', "%{$search}%")
+                            ->orWhere('kode_barang', 'like', "%{$search}%");
+                    });
             });
         }
 
@@ -45,9 +43,19 @@ class StokMasukController extends Controller
             $query->where('tipe', $request->tipe);
         }
 
-        $totalTransaksi = Transaksi::notVoided()->whereIn('tipe', [Transaksi::TIPE_MASUK, Transaksi::TIPE_KEMBALI])->count();
-        $totalUnit = Transaksi::notVoided()->whereIn('tipe', [Transaksi::TIPE_MASUK, Transaksi::TIPE_KEMBALI])->sum('jumlah');
-        $masukHariIni = Transaksi::notVoided()->whereIn('tipe', [Transaksi::TIPE_MASUK, Transaksi::TIPE_KEMBALI])->whereDate('tanggal', today())->sum('jumlah');
+        $stat = Transaksi::notVoided()
+            ->whereIn('tipe', [Transaksi::TIPE_MASUK, Transaksi::TIPE_KEMBALI])
+            ->selectRaw(
+                'COUNT(*) as total_transaksi, '.
+                'COALESCE(SUM(jumlah), 0) as total_unit, '.
+                'COALESCE(SUM(CASE WHEN tanggal >= ? AND tanggal <= ? THEN jumlah ELSE 0 END), 0) as hari_ini',
+                [today()->startOfDay(), today()->endOfDay()]
+            )
+            ->first();
+
+        $totalTransaksi = (int) ($stat->total_transaksi ?? 0);
+        $totalUnit = (int) ($stat->total_unit ?? 0);
+        $masukHariIni = (int) ($stat->hari_ini ?? 0);
         $totalBarang = Barang::count();
 
         $stokMasuks = $query->orderByDesc('tanggal')->paginate(10)->withQueryString();
@@ -99,7 +107,7 @@ class StokMasukController extends Controller
         }
 
         $message = $barang->isTrackedPerUnit()
-            ? 'Penerimaan berhasil. ' . $data['jumlah'] . ' unit dibuat dengan Asset ID & barcode baru.'
+            ? 'Penerimaan berhasil. '.$data['jumlah'].' unit dibuat dengan Asset ID & barcode baru.'
             : 'Stok masuk berhasil disimpan dan stok barang telah diperbarui.';
 
         return redirect()

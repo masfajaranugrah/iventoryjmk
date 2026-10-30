@@ -15,8 +15,7 @@ class RiwayatController extends Controller
     public function __construct(
         private StockService $stock,
         private AuditLogger $audit
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): View
     {
@@ -26,16 +25,16 @@ class RiwayatController extends Controller
             $search = trim($request->search);
             $query->where(function ($q) use ($search) {
                 $q->where('kode_transaksi', 'like', "%{$search}%")
-                  ->orWhere('nama_pengambil', 'like', "%{$search}%")
-                  ->orWhere('nama_pemasok', 'like', "%{$search}%")
-                  ->orWhere('user', 'like', "%{$search}%")
-                  ->orWhereHas('barang', function ($b) use ($search) {
-                      $b->where('nama_barang', 'like', "%{$search}%")
-                        ->orWhere('kode_barang', 'like', "%{$search}%");
-                  })
-                  ->orWhereHas('unit', function ($u) use ($search) {
-                      $u->where('asset_id', 'like', "%{$search}%");
-                  });
+                    ->orWhere('nama_pengambil', 'like', "%{$search}%")
+                    ->orWhere('nama_pemasok', 'like', "%{$search}%")
+                    ->orWhere('user', 'like', "%{$search}%")
+                    ->orWhereHas('barang', function ($b) use ($search) {
+                        $b->where('nama_barang', 'like', "%{$search}%")
+                            ->orWhere('kode_barang', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('unit', function ($u) use ($search) {
+                        $u->where('asset_id', 'like', "%{$search}%");
+                    });
             });
         }
 
@@ -47,11 +46,21 @@ class RiwayatController extends Controller
             $query->whereDate('tanggal', $request->date);
         }
 
+        $summaryRow = Transaksi::notVoided()
+            ->selectRaw(
+                'COALESCE(SUM(CASE WHEN tipe = ? THEN jumlah ELSE 0 END), 0) as masuk, '.
+                'COALESCE(SUM(CASE WHEN tipe = ? THEN jumlah ELSE 0 END), 0) as keluar, '.
+                'COALESCE(SUM(CASE WHEN tipe = ? THEN jumlah ELSE 0 END), 0) as kembali, '.
+                'COUNT(*) as total',
+                [Transaksi::TIPE_MASUK, Transaksi::TIPE_KELUAR, Transaksi::TIPE_KEMBALI]
+            )
+            ->first();
+
         $summary = [
-            'masuk' => Transaksi::notVoided()->where('tipe', Transaksi::TIPE_MASUK)->sum('jumlah'),
-            'keluar' => Transaksi::notVoided()->where('tipe', Transaksi::TIPE_KELUAR)->sum('jumlah'),
-            'kembali' => Transaksi::notVoided()->where('tipe', Transaksi::TIPE_KEMBALI)->sum('jumlah'),
-            'total' => Transaksi::notVoided()->count(),
+            'masuk' => (int) ($summaryRow->masuk ?? 0),
+            'keluar' => (int) ($summaryRow->keluar ?? 0),
+            'kembali' => (int) ($summaryRow->kembali ?? 0),
+            'total' => (int) ($summaryRow->total ?? 0),
         ];
 
         $transaksis = $query->orderByDesc('tanggal')->orderByDesc('id')->paginate(15)->withQueryString();
@@ -77,11 +86,11 @@ class RiwayatController extends Controller
             return back()->with('error', $e->getMessage());
         }
 
-        $this->audit->log('transaksi.void', 'Membatalkan transaksi ' . $transaksi->kode_transaksi, $transaksi, [
+        $this->audit->log('transaksi.void', 'Membatalkan transaksi '.$transaksi->kode_transaksi, $transaksi, [
             'reason' => $data['reason'],
             'reversal_code' => $reversal->kode_transaksi,
         ]);
 
-        return back()->with('success', 'Transaksi ' . $transaksi->kode_transaksi . ' dibatalkan. Transaksi pembatalan: ' . $reversal->kode_transaksi . '.');
+        return back()->with('success', 'Transaksi '.$transaksi->kode_transaksi.' dibatalkan. Transaksi pembatalan: '.$reversal->kode_transaksi.'.');
     }
 }

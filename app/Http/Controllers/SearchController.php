@@ -9,6 +9,7 @@ use App\Models\Opname;
 use App\Models\Transaksi;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
@@ -17,7 +18,7 @@ class SearchController extends Controller
     public function index(Request $request): View
     {
         $q = trim((string) $request->q);
-        $groups = $q === '' ? [] : $this->perform($request, $q);
+        $groups = $q === '' ? [] : $this->cachedPerform($request, $q);
 
         return view('dashboard.search', compact('q', 'groups'));
     }
@@ -30,7 +31,18 @@ class SearchController extends Controller
             return response()->json(['groups' => [], 'query' => $q]);
         }
 
-        return response()->json(['groups' => $this->perform($request, $q), 'query' => $q]);
+        return response()->json(['groups' => $this->cachedPerform($request, $q), 'query' => $q]);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function cachedPerform(Request $request, string $q): array
+    {
+        $role = $request->user()?->role ?? 'guest';
+        $key = 'search:'.$role.':'.md5(mb_strtolower($q));
+
+        return Cache::remember($key, 30, fn () => $this->perform($request, $q));
     }
 
     /**
@@ -38,7 +50,7 @@ class SearchController extends Controller
      */
     private function perform(Request $request, string $q): array
     {
-        $like = '%' . $q . '%';
+        $like = '%'.$q.'%';
         $limit = 5;
         $groups = [];
 
@@ -49,16 +61,19 @@ class SearchController extends Controller
         }
 
         // 2. Barang
-        $barangs = Barang::where('nama_barang', 'like', $like)
-            ->orWhere('kode_barang', 'like', $like)
-            ->orWhere('kategori', 'like', $like)
-            ->orWhere('merek', 'like', $like)
-            ->orWhere('model', 'like', $like)
+        $barangs = Barang::select(['id', 'nama_barang', 'kode_barang', 'stok', 'satuan'])
+            ->where(function ($q) use ($like) {
+                $q->where('nama_barang', 'like', $like)
+                    ->orWhere('kode_barang', 'like', $like)
+                    ->orWhere('kategori', 'like', $like)
+                    ->orWhere('merek', 'like', $like)
+                    ->orWhere('model', 'like', $like);
+            })
             ->limit($limit)
             ->get()
             ->map(fn (Barang $b) => [
                 'title' => $b->nama_barang,
-                'subtitle' => $b->kode_barang . ' · stok ' . $b->stok . ' ' . ($b->satuan ?? ''),
+                'subtitle' => $b->kode_barang.' · stok '.$b->stok.' '.($b->satuan ?? ''),
                 'url' => route('stok-barang.index', ['search' => $b->kode_barang]),
             ])->all();
         if ($barangs) {
@@ -66,15 +81,20 @@ class SearchController extends Controller
         }
 
         // 3. Unit / Asset ID
-        $units = BarangUnit::with('barang')
-            ->where('asset_id', 'like', $like)
-            ->orWhere('serial_number', 'like', $like)
-            ->orWhereHas('barang', fn ($b) => $b->where('nama_barang', 'like', $like)->orWhere('kode_barang', 'like', $like))
+        $units = BarangUnit::with('barang:id,nama_barang,kode_barang')
+            ->select(['id', 'barang_id', 'asset_id', 'serial_number', 'status'])
+            ->where(function ($q) use ($like) {
+                $q->where('asset_id', 'like', $like)
+                    ->orWhere('serial_number', 'like', $like)
+                    ->orWhereIn('barang_id', Barang::select('id')->where(function ($b) use ($like) {
+                        $b->where('nama_barang', 'like', $like)->orWhere('kode_barang', 'like', $like);
+                    }));
+            })
             ->limit($limit)
             ->get()
             ->map(fn (BarangUnit $u) => [
                 'title' => $u->asset_id,
-                'subtitle' => ($u->barang->nama_barang ?? '-') . ' · ' . $u->statusLabel(),
+                'subtitle' => ($u->barang->nama_barang ?? '-').' · '.$u->statusLabel(),
                 'url' => route('barang-units.index', ['search' => $u->asset_id]),
             ])->all();
         if ($units) {
@@ -82,19 +102,24 @@ class SearchController extends Controller
         }
 
         // 4. Transaksi
-        $transaksis = Transaksi::with('barang')
+        $transaksis = Transaksi::with('barang:id,nama_barang,kode_barang')
             ->notVoided()
-            ->where('kode_transaksi', 'like', $like)
-            ->orWhere('nama_pengambil', 'like', $like)
-            ->orWhere('nama_pemasok', 'like', $like)
-            ->orWhere('user', 'like', $like)
-            ->orWhereHas('barang', fn ($b) => $b->where('nama_barang', 'like', $like)->orWhere('kode_barang', 'like', $like))
+            ->select(['id', 'kode_transaksi', 'barang_id', 'tipe', 'tanggal'])
+            ->where(function ($q) use ($like) {
+                $q->where('kode_transaksi', 'like', $like)
+                    ->orWhere('nama_pengambil', 'like', $like)
+                    ->orWhere('nama_pemasok', 'like', $like)
+                    ->orWhere('user', 'like', $like)
+                    ->orWhereIn('barang_id', Barang::select('id')->where(function ($b) use ($like) {
+                        $b->where('nama_barang', 'like', $like)->orWhere('kode_barang', 'like', $like);
+                    }));
+            })
             ->orderByDesc('id')
             ->limit($limit)
             ->get()
             ->map(fn (Transaksi $t) => [
                 'title' => $t->kode_transaksi,
-                'subtitle' => $t->tipeLabel() . ' · ' . ($t->barang->nama_barang ?? '-') . ' · ' . optional($t->tanggal)->format('d/m/Y'),
+                'subtitle' => $t->tipeLabel().' · '.($t->barang->nama_barang ?? '-').' · '.optional($t->tanggal)->format('d/m/Y'),
                 'url' => route('riwayat.index', ['search' => $t->kode_transaksi]),
             ])->all();
         if ($transaksis) {
@@ -102,8 +127,10 @@ class SearchController extends Controller
         }
 
         // 5. Lokasi
-        $lokasis = Lokasi::where('nama', 'like', $like)
-            ->orWhere('keterangan', 'like', $like)
+        $lokasis = Lokasi::select(['id', 'nama', 'keterangan'])
+            ->where(function ($q) use ($like) {
+                $q->where('nama', 'like', $like)->orWhere('keterangan', 'like', $like);
+            })
             ->limit($limit)
             ->get()
             ->map(fn (Lokasi $l) => [
@@ -116,15 +143,18 @@ class SearchController extends Controller
         }
 
         // 6. Opname
-        $opnames = Opname::with('lokasi')
-            ->where('kode_opname', 'like', $like)
-            ->orWhereHas('lokasi', fn ($l) => $l->where('nama', 'like', $like))
+        $opnames = Opname::with('lokasi:id,nama')
+            ->select(['id', 'kode_opname', 'tanggal', 'lokasi_id'])
+            ->where(function ($q) use ($like) {
+                $q->where('kode_opname', 'like', $like)
+                    ->orWhereIn('lokasi_id', Lokasi::select('id')->where('nama', 'like', $like));
+            })
             ->orderByDesc('id')
             ->limit($limit)
             ->get()
             ->map(fn (Opname $o) => [
                 'title' => $o->kode_opname,
-                'subtitle' => optional($o->tanggal)->format('d/m/Y') . ' · ' . ($o->lokasi->nama ?? 'Semua Lokasi'),
+                'subtitle' => optional($o->tanggal)->format('d/m/Y').' · '.($o->lokasi->nama ?? 'Semua Lokasi'),
                 'url' => route('opname.show', $o),
             ])->all();
         if ($opnames) {

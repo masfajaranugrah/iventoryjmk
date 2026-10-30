@@ -7,6 +7,7 @@ use App\Models\BarangUnit;
 use App\Models\Lokasi;
 use App\Models\Transaksi;
 use App\Services\CodeGenerator;
+use App\Services\StockService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,9 +16,7 @@ use Illuminate\View\View;
 
 class BarangUnitController extends Controller
 {
-    public function __construct(private CodeGenerator $codes)
-    {
-    }
+    public function __construct(private CodeGenerator $codes) {}
 
     public function index(Request $request): View
     {
@@ -28,11 +27,11 @@ class BarangUnitController extends Controller
             $search = trim($request->search);
             $query->where(function ($q) use ($search) {
                 $q->where('asset_id', 'like', "%{$search}%")
-                  ->orWhere('serial_number', 'like', "%{$search}%")
-                  ->orWhereHas('barang', function ($b) use ($search) {
-                      $b->where('nama_barang', 'like', "%{$search}%")
-                        ->orWhere('kode_barang', 'like', "%{$search}%");
-                  });
+                    ->orWhere('serial_number', 'like', "%{$search}%")
+                    ->orWhereHas('barang', function ($b) use ($search) {
+                        $b->where('nama_barang', 'like', "%{$search}%")
+                            ->orWhere('kode_barang', 'like', "%{$search}%");
+                    });
             });
         }
 
@@ -55,11 +54,16 @@ class BarangUnitController extends Controller
         $lokasis = Lokasi::orderBy('nama')->get(['id', 'nama']);
         $statusLabels = BarangUnit::statusLabels();
 
+        $statusCounts = BarangUnit::whereIn('barang_id', $activeBarangIds)
+            ->selectRaw('status, COUNT(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status');
+
         $summary = [
-            'total' => BarangUnit::whereIn('barang_id', $activeBarangIds)->count(),
-            'tersedia' => BarangUnit::whereIn('barang_id', $activeBarangIds)->where('status', BarangUnit::STATUS_TERSEDIA)->count(),
-            'di_teknisi' => BarangUnit::whereIn('barang_id', $activeBarangIds)->where('status', BarangUnit::STATUS_DI_TEKNISI)->count(),
-            'perlu_pemeriksaan' => BarangUnit::whereIn('barang_id', $activeBarangIds)->where('status', BarangUnit::STATUS_PERLU_PEMERIKSAAN)->count(),
+            'total' => (int) $statusCounts->sum(),
+            'tersedia' => (int) ($statusCounts[BarangUnit::STATUS_TERSEDIA] ?? 0),
+            'di_teknisi' => (int) ($statusCounts[BarangUnit::STATUS_DI_TEKNISI] ?? 0),
+            'perlu_pemeriksaan' => (int) ($statusCounts[BarangUnit::STATUS_PERLU_PEMERIKSAAN] ?? 0),
         ];
 
         return view('dashboard.barang-units', compact(
@@ -107,12 +111,12 @@ class BarangUnitController extends Controller
                 'tanggal' => now(),
             ]);
 
-            app(\App\Services\StockService::class)->syncUnitStock($unit->barang);
+            app(StockService::class)->syncUnitStock($unit->barang);
         });
 
         return redirect()
             ->route('barang-units.index')
-            ->with('success', 'Data unit ' . $unit->asset_id . ' berhasil diperbarui.');
+            ->with('success', 'Data unit '.$unit->asset_id.' berhasil diperbarui.');
     }
 
     public function labels(Request $request): View

@@ -21,8 +21,7 @@ class StokBarangController extends Controller
         private StockService $stock,
         private CodeGenerator $codes,
         private AuditLogger $audit
-    ) {
-    }
+    ) {}
 
     public function index(Request $request)
     {
@@ -32,11 +31,11 @@ class StokBarangController extends Controller
             $search = trim($request->search);
             $query->where(function ($q) use ($search) {
                 $q->where('nama_barang', 'like', "%{$search}%")
-                  ->orWhere('kode_barang', 'like', "%{$search}%")
-                  ->orWhere('kategori', 'like', "%{$search}%")
-                  ->orWhere('merek', 'like', "%{$search}%")
-                  ->orWhere('model', 'like', "%{$search}%")
-                  ->orWhere('satuan', 'like', "%{$search}%");
+                    ->orWhere('kode_barang', 'like', "%{$search}%")
+                    ->orWhere('kategori', 'like', "%{$search}%")
+                    ->orWhere('merek', 'like', "%{$search}%")
+                    ->orWhere('model', 'like', "%{$search}%")
+                    ->orWhere('satuan', 'like', "%{$search}%");
             });
         }
 
@@ -44,10 +43,17 @@ class StokBarangController extends Controller
             $query->where('tipe_pelacakan', $request->tipe);
         }
 
-        $totalItems = Barang::count();
-        $totalStok = Barang::sum('stok');
-        $lowStock = Barang::where('stok', '>', 0)->where('stok', '<=', 10)->count();
-        $outOfStock = Barang::where('stok', '<=', 0)->count();
+        $stat = Barang::selectRaw(
+            'COUNT(*) as total_items, '.
+            'COALESCE(SUM(stok), 0) as total_stok, '.
+            'COALESCE(SUM(CASE WHEN stok > 0 AND stok <= 10 THEN 1 ELSE 0 END), 0) as low_stock, '.
+            'COALESCE(SUM(CASE WHEN stok <= 0 THEN 1 ELSE 0 END), 0) as out_of_stock'
+        )->first();
+
+        $totalItems = (int) ($stat->total_items ?? 0);
+        $totalStok = (int) ($stat->total_stok ?? 0);
+        $lowStock = (int) ($stat->low_stock ?? 0);
+        $outOfStock = (int) ($stat->out_of_stock ?? 0);
 
         $barangs = $query->orderBy('id', 'desc')->paginate(40)->withQueryString();
 
@@ -109,7 +115,7 @@ class StokBarangController extends Controller
             return $barang;
         });
 
-        $this->audit->log('barang.create', 'Menambahkan barang ' . $barang->nama_barang, $barang, [
+        $this->audit->log('barang.create', 'Menambahkan barang '.$barang->nama_barang, $barang, [
             'kode_barang' => $barang->kode_barang,
             'jumlah_awal' => $jumlahAwal,
         ]);
@@ -122,7 +128,7 @@ class StokBarangController extends Controller
     public function update(Request $request, Barang $barang): RedirectResponse
     {
         $data = $request->validate([
-            'kode_barang' => ['required', 'string', 'max:100', 'unique:barangs,kode_barang,' . $barang->id],
+            'kode_barang' => ['required', 'string', 'max:100', 'unique:barangs,kode_barang,'.$barang->id],
             'nama_barang' => ['required', 'string', 'max:150'],
             'kategori' => ['nullable', 'string', 'max:100'],
             'merek' => ['nullable', 'string', 'max:100'],
@@ -138,7 +144,7 @@ class StokBarangController extends Controller
         $before = $barang->only(['kode_barang', 'nama_barang', 'kategori', 'merek', 'model', 'satuan', 'tipe_pelacakan']);
         $barang->update($data);
 
-        $this->audit->log('barang.update', 'Memperbarui barang ' . $barang->nama_barang, $barang, [
+        $this->audit->log('barang.update', 'Memperbarui barang '.$barang->nama_barang, $barang, [
             'before' => $before,
             'after' => $barang->only(['kode_barang', 'nama_barang', 'kategori', 'merek', 'model', 'satuan', 'tipe_pelacakan']),
         ]);
@@ -160,7 +166,7 @@ class StokBarangController extends Controller
 
         $barang->delete();
 
-        $this->audit->log('barang.delete', 'Menghapus barang ' . $barang->nama_barang, $barang, [
+        $this->audit->log('barang.delete', 'Menghapus barang '.$barang->nama_barang, $barang, [
             'kode_barang' => $barang->kode_barang,
         ]);
 
@@ -192,7 +198,7 @@ class StokBarangController extends Controller
         if (! $unit) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Asset ID ' . $data['asset_id'] . ' tidak ditemukan.',
+                'message' => 'Asset ID '.$data['asset_id'].' tidak ditemukan.',
             ], 404);
         }
 
@@ -232,7 +238,7 @@ class StokBarangController extends Controller
                     $user,
                     $data['catatan'] ?? null
                 );
-                $message = $unit->barang->nama_barang . ' (' . $unit->asset_id . ') keluar.';
+                $message = $unit->barang->nama_barang.' ('.$unit->asset_id.') keluar.';
             } else {
                 $unit = $this->stock->returnUnit(
                     $data['asset_id'],
@@ -242,7 +248,7 @@ class StokBarangController extends Controller
                     $data['catatan'] ?? null,
                     $data['nama_pengambil'] ?? null
                 );
-                $message = $unit->barang->nama_barang . ' (' . $unit->asset_id . ') kembali ke gudang.';
+                $message = $unit->barang->nama_barang.' ('.$unit->asset_id.') kembali ke gudang.';
             }
         } catch (RuntimeException $e) {
             return response()->json([

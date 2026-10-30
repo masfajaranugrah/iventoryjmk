@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Barang;
+use App\Models\BarangUnit;
 use App\Models\Lokasi;
 use App\Models\Transaksi;
 use App\Services\StockService;
@@ -14,9 +15,7 @@ use RuntimeException;
 
 class StokKeluarController extends Controller
 {
-    public function __construct(private StockService $stock)
-    {
-    }
+    public function __construct(private StockService $stock) {}
 
     public function index(Request $request): View
     {
@@ -28,12 +27,12 @@ class StokKeluarController extends Controller
             $search = trim($request->search);
             $query->where(function ($q) use ($search) {
                 $q->where('nama_pengambil', 'like', "%{$search}%")
-                  ->orWhere('user', 'like', "%{$search}%")
-                  ->orWhere('kode_transaksi', 'like', "%{$search}%")
-                  ->orWhereHas('barang', function ($b) use ($search) {
-                      $b->where('nama_barang', 'like', "%{$search}%")
-                        ->orWhere('kode_barang', 'like', "%{$search}%");
-                  });
+                    ->orWhere('user', 'like', "%{$search}%")
+                    ->orWhere('kode_transaksi', 'like', "%{$search}%")
+                    ->orWhereHas('barang', function ($b) use ($search) {
+                        $b->where('nama_barang', 'like', "%{$search}%")
+                            ->orWhere('kode_barang', 'like', "%{$search}%");
+                    });
             });
         }
 
@@ -41,13 +40,21 @@ class StokKeluarController extends Controller
             $query->whereDate('tanggal', $request->date);
         }
 
-        $totalTransaksi = Transaksi::notVoided()->where('tipe', Transaksi::TIPE_KELUAR)->count();
-        $totalUnit = Transaksi::notVoided()->where('tipe', Transaksi::TIPE_KELUAR)->sum('jumlah');
-        $keluarHariIni = Transaksi::notVoided()->where('tipe', Transaksi::TIPE_KELUAR)->whereDate('tanggal', today())->sum('jumlah');
-        $totalPengambil = Transaksi::notVoided()->where('tipe', Transaksi::TIPE_KELUAR)
-            ->whereNotNull('nama_pengambil')
-            ->distinct('nama_pengambil')
-            ->count('nama_pengambil');
+        $stat = Transaksi::notVoided()
+            ->where('tipe', Transaksi::TIPE_KELUAR)
+            ->selectRaw(
+                'COUNT(*) as total_transaksi, '.
+                'COALESCE(SUM(jumlah), 0) as total_unit, '.
+                'COALESCE(SUM(CASE WHEN tanggal >= ? AND tanggal <= ? THEN jumlah ELSE 0 END), 0) as hari_ini, '.
+                'COUNT(DISTINCT CASE WHEN nama_pengambil IS NOT NULL THEN nama_pengambil END) as total_pengambil',
+                [today()->startOfDay(), today()->endOfDay()]
+            )
+            ->first();
+
+        $totalTransaksi = (int) ($stat->total_transaksi ?? 0);
+        $totalUnit = (int) ($stat->total_unit ?? 0);
+        $keluarHariIni = (int) ($stat->hari_ini ?? 0);
+        $totalPengambil = (int) ($stat->total_pengambil ?? 0);
 
         $stokKeluars = $query->orderByDesc('tanggal')->paginate(10)->withQueryString();
         $barangs = Barang::where('stok', '>', 0)
@@ -87,7 +94,7 @@ class StokKeluarController extends Controller
                 $data['nama_pengambil'],
                 auth()->user()?->name,
                 $data['catatan'] ?? null,
-                \App\Models\BarangUnit::STATUS_DI_TEKNISI,
+                BarangUnit::STATUS_DI_TEKNISI,
                 $data['lokasi_id'] ?? null,
                 auth()->id(),
                 $tanggal
