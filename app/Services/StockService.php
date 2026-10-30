@@ -11,9 +11,7 @@ use RuntimeException;
 
 class StockService
 {
-    public function __construct(private CodeGenerator $codes)
-    {
-    }
+    public function __construct(private CodeGenerator $codes) {}
 
     /**
      * Penerimaan barang baru.
@@ -46,19 +44,23 @@ class StockService
             $barang = Barang::lockForUpdate()->findOrFail($barang->id);
 
             if ($barang->isTrackedPerUnit()) {
+                $assetIds = $this->codes->assetIds($jumlah);
+                $codes = $this->codes->transactionCodes($jumlah, $tanggal);
+
                 for ($i = 0; $i < $jumlah; $i++) {
                     $serial = $serialNumbers[$i] ?? null;
                     $serial = is_string($serial) ? trim($serial) : null;
 
                     $unit = BarangUnit::create([
                         'barang_id' => $barang->id,
-                        'asset_id' => $this->codes->assetId(),
+                        'asset_id' => $assetIds[$i],
                         'serial_number' => $serial !== '' ? $serial : null,
                         'status' => BarangUnit::STATUS_TERSEDIA,
                         'lokasi_id' => $lokasiId,
                     ]);
 
                     $this->record($barang, [
+                        'kode_transaksi' => $codes[$i],
                         'barang_unit_id' => $unit->id,
                         'tipe' => Transaksi::TIPE_MASUK,
                         'jumlah' => 1,
@@ -120,17 +122,19 @@ class StockService
                     ->get();
 
                 if ($units->count() < $jumlah) {
-                    throw new RuntimeException('Stok tersedia tidak mencukupi. Tersedia: ' . $units->count() . ' unit.');
+                    throw new RuntimeException('Stok tersedia tidak mencukupi. Tersedia: '.$units->count().' unit.');
                 }
 
-                foreach ($units as $unit) {
-                    $this->applyUnitStatus($unit, $status, $namaPengambil, $user, $catatan, Transaksi::TIPE_KELUAR, $lokasiId, $userId, $tanggal);
+                $codes = $this->codes->transactionCodes($units->count(), $tanggal);
+
+                foreach ($units as $index => $unit) {
+                    $this->applyUnitStatus($unit, $status, $namaPengambil, $user, $catatan, Transaksi::TIPE_KELUAR, $lokasiId, $userId, $tanggal, $codes[$index]);
                 }
 
                 $this->syncUnitStock($barang);
             } else {
                 if ($barang->stok < $jumlah) {
-                    throw new RuntimeException('Stok tidak mencukupi. Sisa: ' . $barang->stok . '.');
+                    throw new RuntimeException('Stok tidak mencukupi. Sisa: '.$barang->stok.'.');
                 }
 
                 $barang->stok = $barang->stok - $jumlah;
@@ -192,7 +196,7 @@ class StockService
             $barang = Barang::lockForUpdate()->findOrFail($unit->barang_id);
 
             if (! $unit->isAvailable()) {
-                throw new RuntimeException('Unit ' . $unit->asset_id . ' sedang tidak tersedia di gudang (status: ' . $unit->statusLabel() . ').');
+                throw new RuntimeException('Unit '.$unit->asset_id.' sedang tidak tersedia di gudang (status: '.$unit->statusLabel().').');
             }
 
             $this->applyUnitStatus($unit, $status, $namaPengambil, $user, $catatan, Transaksi::TIPE_KELUAR, $lokasiId, $userId, $tanggal);
@@ -279,13 +283,16 @@ class StockService
                         ->lockForUpdate()
                         ->get();
 
-                    foreach ($units as $unit) {
+                    $codes = $this->codes->transactionCodes($units->count(), $tanggal);
+
+                    foreach ($units as $index => $unit) {
                         $previous = $unit->status;
                         $unit->status = BarangUnit::STATUS_HILANG;
                         $unit->catatan = $catatan;
                         $unit->save();
 
                         $this->record($barang, [
+                            'kode_transaksi' => $codes[$index],
                             'barang_unit_id' => $unit->id,
                             'tipe' => Transaksi::TIPE_PENYESUAIAN,
                             'jumlah' => -1,
@@ -299,15 +306,19 @@ class StockService
                         ]);
                     }
                 } else {
+                    $assetIds = $this->codes->assetIds($delta);
+                    $codes = $this->codes->transactionCodes($delta, $tanggal);
+
                     for ($i = 0; $i < $delta; $i++) {
                         $unit = BarangUnit::create([
                             'barang_id' => $barang->id,
-                            'asset_id' => $this->codes->assetId(),
+                            'asset_id' => $assetIds[$i],
                             'status' => BarangUnit::STATUS_TERSEDIA,
                             'lokasi_id' => $lokasiId,
                         ]);
 
                         $this->record($barang, [
+                            'kode_transaksi' => $codes[$i],
                             'barang_unit_id' => $unit->id,
                             'tipe' => Transaksi::TIPE_PENYESUAIAN,
                             'jumlah' => 1,
@@ -353,7 +364,7 @@ class StockService
             $trx = Transaksi::lockForUpdate()->findOrFail($transaksi->id);
 
             if ($trx->isVoided()) {
-                throw new RuntimeException('Transaksi ' . $trx->kode_transaksi . ' sudah dibatalkan sebelumnya.');
+                throw new RuntimeException('Transaksi '.$trx->kode_transaksi.' sudah dibatalkan sebelumnya.');
             }
 
             if ($trx->isReversal()) {
@@ -393,7 +404,7 @@ class StockService
                 'nama_pemasok' => $trx->nama_pemasok,
                 'user' => $user,
                 'user_id' => $userId,
-                'catatan' => 'Pembatalan ' . $trx->kode_transaksi . ': ' . trim($reason),
+                'catatan' => 'Pembatalan '.$trx->kode_transaksi.': '.trim($reason),
                 'reversal_of_id' => $trx->id,
                 'tanggal' => now(),
             ]);
@@ -422,7 +433,7 @@ class StockService
                 ->exists();
 
             if ($later) {
-                throw new RuntimeException('Unit ' . $unit->asset_id . ' sudah memiliki transaksi lain setelah transaksi ini. Batalkan transaksi terbaru terlebih dahulu.');
+                throw new RuntimeException('Unit '.$unit->asset_id.' sudah memiliki transaksi lain setelah transaksi ini. Batalkan transaksi terbaru terlebih dahulu.');
             }
 
             if ($trx->tipe === Transaksi::TIPE_PINDAH && is_null($trx->lokasi_sebelum_id)) {
@@ -444,7 +455,7 @@ class StockService
         switch ($trx->tipe) {
             case Transaksi::TIPE_MASUK:
                 if ($unit->status !== BarangUnit::STATUS_TERSEDIA) {
-                    throw new RuntimeException('Unit ' . $unit->asset_id . ' sudah tidak tersedia (status: ' . $unit->statusLabel() . '), tidak dapat membatalkan penerimaan.');
+                    throw new RuntimeException('Unit '.$unit->asset_id.' sudah tidak tersedia (status: '.$unit->statusLabel().'), tidak dapat membatalkan penerimaan.');
                 }
                 $unit->status = BarangUnit::STATUS_DIBATALKAN;
                 break;
@@ -466,12 +477,12 @@ class StockService
             case Transaksi::TIPE_PENYESUAIAN:
                 if ($trx->jumlah < 0) {
                     if ($unit->status !== BarangUnit::STATUS_HILANG) {
-                        throw new RuntimeException('Unit ' . $unit->asset_id . ' tidak dalam status hilang, tidak dapat membatalkan penyesuaian.');
+                        throw new RuntimeException('Unit '.$unit->asset_id.' tidak dalam status hilang, tidak dapat membatalkan penyesuaian.');
                     }
                     $unit->status = $trx->status_sebelum ?: BarangUnit::STATUS_TERSEDIA;
                 } else {
                     if ($unit->status !== BarangUnit::STATUS_TERSEDIA) {
-                        throw new RuntimeException('Unit ' . $unit->asset_id . ' sudah tidak tersedia, tidak dapat membatalkan penyesuaian.');
+                        throw new RuntimeException('Unit '.$unit->asset_id.' sudah tidak tersedia, tidak dapat membatalkan penyesuaian.');
                     }
                     $unit->status = BarangUnit::STATUS_DIBATALKAN;
                 }
@@ -486,10 +497,10 @@ class StockService
                 break;
 
             default:
-                throw new RuntimeException('Tipe transaksi ' . $trx->tipeLabel() . ' tidak dapat dibatalkan.');
+                throw new RuntimeException('Tipe transaksi '.$trx->tipeLabel().' tidak dapat dibatalkan.');
         }
 
-        $unit->catatan = trim(($unit->catatan ? $unit->catatan . ' | ' : '') . 'Dibatalkan: ' . trim($reason));
+        $unit->catatan = trim(($unit->catatan ? $unit->catatan.' | ' : '').'Dibatalkan: '.trim($reason));
         $unit->save();
     }
 
@@ -502,7 +513,8 @@ class StockService
         string $tipe,
         ?int $lokasiId = null,
         ?int $userId = null,
-        ?CarbonInterface $tanggal = null
+        ?CarbonInterface $tanggal = null,
+        ?string $kodeTransaksi = null
     ): void {
         $previous = $unit->status;
         $previousLokasi = $unit->lokasi_id;
@@ -514,6 +526,7 @@ class StockService
         $unit->save();
 
         $this->record($unit->barang, [
+            'kode_transaksi' => $kodeTransaksi,
             'barang_unit_id' => $unit->id,
             'tipe' => $tipe,
             'jumlah' => 1,
@@ -539,12 +552,12 @@ class StockService
         }, $serialNumbers), fn ($serial) => $serial !== null && $serial !== ''));
 
         if (count($serials) > $jumlah) {
-            throw new RuntimeException('Jumlah serial number (' . count($serials) . ') melebihi jumlah barang (' . $jumlah . ').');
+            throw new RuntimeException('Jumlah serial number ('.count($serials).') melebihi jumlah barang ('.$jumlah.').');
         }
 
         $duplicates = array_keys(array_filter(array_count_values($serials), fn ($count) => $count > 1));
         if ($duplicates) {
-            throw new RuntimeException('Serial number duplikat dalam input: ' . implode(', ', $duplicates) . '.');
+            throw new RuntimeException('Serial number duplikat dalam input: '.implode(', ', $duplicates).'.');
         }
 
         if ($serials) {
@@ -554,7 +567,7 @@ class StockService
                 ->all();
 
             if ($exists) {
-                throw new RuntimeException('Serial number sudah terdaftar: ' . implode(', ', $exists) . '.');
+                throw new RuntimeException('Serial number sudah terdaftar: '.implode(', ', $exists).'.');
             }
         }
     }
@@ -565,9 +578,10 @@ class StockService
     private function record(Barang $barang, array $attributes): Transaksi
     {
         $attributes['tanggal'] = $attributes['tanggal'] ?? now();
+        $attributes['kode_transaksi'] = $attributes['kode_transaksi']
+            ?? $this->codes->transactionCode($attributes['tanggal']);
 
         return Transaksi::create(array_merge([
-            'kode_transaksi' => $this->codes->transactionCode($attributes['tanggal']),
             'barang_id' => $barang->id,
             'user' => $attributes['user'] ?? null,
             'user_id' => $attributes['user_id'] ?? null,

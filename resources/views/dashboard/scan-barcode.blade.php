@@ -267,7 +267,7 @@
         </div>
 
         @include('partials.front.scripts')
-        <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+        <script src="/assets/js/vendor/html5-qrcode.min.js"></script>
         <script>
             (function () {
                 const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
@@ -461,7 +461,6 @@
                     pendingScan = null;
                     pickerModal.classList.add('hidden');
                     pickerModal.classList.remove('flex');
-                    lastCode = null;
                 }
 
                 async function processScan(code) {
@@ -473,6 +472,7 @@
                     isProcessing = true;
                     lastCode = code;
                     lastCodeTime = now;
+                    let failed = false;
 
                     try {
                         const response = await fetch('/dashboard/scan-barcode/process', {
@@ -488,6 +488,7 @@
                         const result = await response.json();
 
                         if (!response.ok || result.status !== 'success') {
+                            failed = true;
                             renderLastScan(result.message || 'Terjadi kesalahan.', true);
                             showToast(result.message || 'Terjadi kesalahan.', 'error');
                             beep(false);
@@ -497,13 +498,18 @@
                             beep(true);
                         }
                     } catch (error) {
+                        failed = true;
                         renderLastScan('Gagal menghubungi server.', true);
                         showToast('Gagal menghubungi server.', 'error');
                         beep(false);
                     } finally {
-                        setTimeout(function () {
+                        if (failed) {
+                            setTimeout(function () {
+                                isProcessing = false;
+                            }, 600);
+                        } else {
                             isProcessing = false;
-                        }, 700);
+                        }
                     }
                 }
 

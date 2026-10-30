@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Barang;
+use App\Models\BarangUnit;
 use App\Models\Lokasi;
 use App\Models\Opname;
 use App\Models\OpnameItem;
@@ -21,8 +22,7 @@ class OpnameController extends Controller
         private StockService $stock,
         private CodeGenerator $codes,
         private AuditLogger $audit
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): View
     {
@@ -72,22 +72,37 @@ class OpnameController extends Controller
             ]);
 
             $lokasiId = $data['lokasi_id'] ?? null;
+            $now = now();
+            $rows = [];
 
-            foreach (Barang::orderBy('nama_barang')->get() as $barang) {
+            $unitCounts = BarangUnit::query()
+                ->where('status', BarangUnit::STATUS_TERSEDIA)
+                ->when($lokasiId, fn ($q) => $q->where('lokasi_id', $lokasiId))
+                ->selectRaw('barang_id, COUNT(*) as total')
+                ->groupBy('barang_id')
+                ->pluck('total', 'barang_id');
+
+            foreach (Barang::orderBy('nama_barang')->get(['id', 'stok', 'tipe_pelacakan']) as $barang) {
                 if ($barang->isTrackedPerUnit()) {
-                    $stokSistem = $barang->units()
-                        ->where('status', \App\Models\BarangUnit::STATUS_TERSEDIA)
-                        ->when($lokasiId, fn ($q) => $q->where('lokasi_id', $lokasiId))
-                        ->count();
+                    $stokSistem = (int) ($unitCounts[$barang->id] ?? 0);
                 } else {
                     $stokSistem = $barang->stok;
                 }
 
-                OpnameItem::create([
+                $rows[] = [
                     'opname_id' => $opname->id,
                     'barang_id' => $barang->id,
                     'stok_sistem' => $stokSistem,
-                ]);
+                    'stok_fisik' => null,
+                    'selisih' => null,
+                    'catatan' => null,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+
+            if ($rows) {
+                OpnameItem::insert($rows);
             }
 
             return $opname;
@@ -95,7 +110,7 @@ class OpnameController extends Controller
 
         return redirect()
             ->route('opname.show', $opname)
-            ->with('success', 'Sesi opname ' . $opname->kode_opname . ' dibuat. Silakan masukkan hasil hitung fisik.');
+            ->with('success', 'Sesi opname '.$opname->kode_opname.' dibuat. Silakan masukkan hasil hitung fisik.');
     }
 
     public function show(Request $request, Opname $opname): View
@@ -110,7 +125,7 @@ class OpnameController extends Controller
             $search = trim($request->search);
             $query->whereHas('barang', function ($b) use ($search) {
                 $b->where('nama_barang', 'like', "%{$search}%")
-                  ->orWhere('kode_barang', 'like', "%{$search}%");
+                    ->orWhere('kode_barang', 'like', "%{$search}%");
             });
         }
 
@@ -179,7 +194,7 @@ class OpnameController extends Controller
                     $item->barang,
                     $item->selisih,
                     $user,
-                    'Penyesuaian opname ' . $opname->kode_opname,
+                    'Penyesuaian opname '.$opname->kode_opname,
                     $opname->lokasi_id,
                     $userId
                 );
@@ -193,13 +208,13 @@ class OpnameController extends Controller
             ]);
         });
 
-        $this->audit->log('opname.finalize', 'Menyelesaikan opname ' . $opname->kode_opname, $opname, [
+        $this->audit->log('opname.finalize', 'Menyelesaikan opname '.$opname->kode_opname, $opname, [
             'adjusted_items' => $adjusted,
         ]);
 
         return redirect()
             ->route('opname.show', $opname)
-            ->with('success', 'Opname ' . $opname->kode_opname . ' diselesaikan. ' . $adjusted . ' item disesuaikan.');
+            ->with('success', 'Opname '.$opname->kode_opname.' diselesaikan. '.$adjusted.' item disesuaikan.');
     }
 
     public function destroy(Opname $opname): RedirectResponse
@@ -220,7 +235,7 @@ class OpnameController extends Controller
 
         return response($html, 200, [
             'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
-            'Content-Disposition' => 'attachment; filename="opname-' . $opname->kode_opname . '.xls"',
+            'Content-Disposition' => 'attachment; filename="opname-'.$opname->kode_opname.'.xls"',
         ]);
     }
 

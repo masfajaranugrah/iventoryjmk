@@ -14,14 +14,30 @@ class CodeGenerator
      */
     public function next(string $name, int $start = 0): int
     {
+        return $this->reserve($name, 1, $start)[0];
+    }
+
+    /**
+     * Pesan beberapa nomor urut sekaligus dalam satu kali update.
+     * Jauh lebih cepat daripada memanggil next() berulang kali.
+     *
+     * @return array<int, int>
+     */
+    public function reserve(string $name, int $count, int $start = 0): array
+    {
+        if ($count < 1) {
+            return [];
+        }
+
         Sequence::firstOrCreate(['name' => $name], ['value' => $start]);
 
         $sequence = Sequence::where('name', $name)->lockForUpdate()->first();
 
-        $sequence->value = $sequence->value + 1;
+        $from = (int) $sequence->value + 1;
+        $sequence->value = (int) $sequence->value + $count;
         $sequence->save();
 
-        return $sequence->value;
+        return range($from, (int) $sequence->value);
     }
 
     /**
@@ -31,6 +47,17 @@ class CodeGenerator
     public function assetId(): string
     {
         return sprintf('JMK-AST-%06d', $this->next('asset_id'));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public function assetIds(int $count): array
+    {
+        return array_map(
+            fn (int $number) => sprintf('JMK-AST-%06d', $number),
+            $this->reserve('asset_id', $count)
+        );
     }
 
     /**
@@ -47,10 +74,24 @@ class CodeGenerator
     public function transactionCode(?CarbonInterface $date = null): string
     {
         $date = $date ? Carbon::instance($date) : now();
-        $key = 'trx_' . $date->format('Ymd');
+        $key = 'trx_'.$date->format('Ymd');
         $number = $this->next($key);
 
         return sprintf('TRX-%s-%04d', $date->format('Ymd'), $number);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public function transactionCodes(int $count, ?CarbonInterface $date = null): array
+    {
+        $date = $date ? Carbon::instance($date) : now();
+        $key = 'trx_'.$date->format('Ymd');
+
+        return array_map(
+            fn (int $number) => sprintf('TRX-%s-%04d', $date->format('Ymd'), $number),
+            $this->reserve($key, $count)
+        );
     }
 
     /**
@@ -59,7 +100,7 @@ class CodeGenerator
     public function opnameCode(?CarbonInterface $date = null): string
     {
         $date = $date ? Carbon::instance($date) : now();
-        $key = 'opn_' . $date->format('Ymd');
+        $key = 'opn_'.$date->format('Ymd');
         $number = $this->next($key);
 
         return sprintf('OPN-%s-%04d', $date->format('Ymd'), $number);
