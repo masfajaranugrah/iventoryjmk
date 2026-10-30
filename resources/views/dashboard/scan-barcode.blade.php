@@ -138,10 +138,19 @@
                                         <p class="!mb-0 max-w-[320px] text-sm text-white/60">Izinkan akses kamera pada browser untuk mulai memindai.</p>
                                     </div>
 
-                                    <div id="scan-overlay" class="scan-frame pointer-events-none absolute inset-[12%] hidden transition-opacity">
+                                    <div id="scan-overlay" class="scan-frame pointer-events-none absolute inset-[6%] hidden transition-opacity">
                                         <span></span>
                                         <div class="scan-laser"></div>
                                     </div>
+                                </div>
+
+                                <div id="zoom-wrap" class="mt-[16px] hidden items-center gap-[12px]">
+                                    <span class="flex shrink-0 items-center gap-[6px] text-sm font-medium text-gray-500 dark:text-gray-400">
+                                        <i class="material-symbols-outlined !text-[20px]">zoom_in</i>
+                                        Zoom
+                                    </span>
+                                    <input type="range" id="zoom-range" min="1" max="1" step="0.1" value="1" class="h-[6px] w-full cursor-pointer accent-primary-500">
+                                    <span id="zoom-value" class="w-[42px] shrink-0 text-right text-sm font-semibold text-black dark:text-white">1x</span>
                                 </div>
 
                                 <div class="mt-[18px] flex flex-col items-stretch justify-between gap-[12px] sm:flex-row sm:items-center">
@@ -274,6 +283,9 @@
                 const reader = document.getElementById('reader');
                 const btnStart = document.getElementById('btn-start');
                 const btnStop = document.getElementById('btn-stop');
+                const zoomWrap = document.getElementById('zoom-wrap');
+                const zoomRange = document.getElementById('zoom-range');
+                const zoomValue = document.getElementById('zoom-value');
                 const cameraStatus = document.getElementById('camera-status');
                 const cameraDot = document.getElementById('camera-dot');
                 const cameraStatusText = document.getElementById('camera-status-text');
@@ -534,13 +546,8 @@
 
                 function config() {
                     return {
-                        fps: 30,
-                        qrbox: function (viewWidth, viewHeight) {
-                            const width = Math.floor(viewWidth * 0.85);
-                            const height = Math.floor(viewHeight * 0.45);
-                            return { width: Math.max(width, 120), height: Math.max(height, 90) };
-                        },
-                        aspectRatio: 1.0,
+                        fps: 20,
+                        aspectRatio: 1.777778,
                         disableFlip: true,
                         experimentalFeatures: {
                             useBarCodeDetectorIfSupported: true,
@@ -561,6 +568,57 @@
                 function onScanSuccess(decodedText) {
                     processScan(decodedText.trim());
                 }
+
+                function updateZoomLabel(value) {
+                    zoomValue.textContent = Number(value).toFixed(1).replace(/\.0$/, '') + 'x';
+                }
+
+                function setupZoom() {
+                    zoomWrap.classList.add('hidden');
+                    zoomWrap.classList.remove('flex');
+
+                    if (!html5QrCode || typeof html5QrCode.getRunningTrackCapabilities !== 'function') {
+                        return;
+                    }
+
+                    try {
+                        const caps = html5QrCode.getRunningTrackCapabilities() || {};
+                        const zoom = caps.zoom;
+
+                        if (!zoom || typeof zoom.max !== 'number' || zoom.max <= (zoom.min || 1)) {
+                            return;
+                        }
+
+                        const min = typeof zoom.min === 'number' ? zoom.min : 1;
+                        const step = typeof zoom.step === 'number' && zoom.step > 0 ? zoom.step : 0.1;
+                        const initial = typeof zoom.initial === 'number' ? zoom.initial : min;
+
+                        zoomRange.min = min;
+                        zoomRange.max = zoom.max;
+                        zoomRange.step = step;
+                        zoomRange.value = initial;
+                        updateZoomLabel(initial);
+
+                        zoomWrap.classList.remove('hidden');
+                        zoomWrap.classList.add('flex');
+                    } catch (e) {
+                        // Zoom tidak didukung perangkat ini.
+                    }
+                }
+
+                zoomRange.addEventListener('input', async function () {
+                    updateZoomLabel(this.value);
+
+                    if (!html5QrCode || typeof html5QrCode.applyVideoConstraints !== 'function') {
+                        return;
+                    }
+
+                    try {
+                        await html5QrCode.applyVideoConstraints({ advanced: [{ zoom: parseFloat(this.value) }] });
+                    } catch (e) {
+                        // Abaikan jika perangkat menolak nilai zoom.
+                    }
+                });
 
                 function cameraErrorMessage(error) {
                     const name = error && error.name ? error.name : '';
@@ -590,6 +648,7 @@
 
                 async function startWithFallback() {
                     const candidates = [
+                        { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
                         { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
                         { facingMode: 'environment' },
                         { facingMode: 'user' },
@@ -674,6 +733,7 @@
 
                     try {
                         await startWithFallback();
+                        setupZoom();
 
                         setStatus('Kamera aktif', 'active');
                         showPlaceholder(false);
@@ -715,6 +775,8 @@
                     }
 
                     setStatus('Kamera mati', 'idle');
+                    zoomWrap.classList.add('hidden');
+                    zoomWrap.classList.remove('flex');
                     scanOverlay.classList.add('hidden');
                     showPlaceholder(true, 'Kamera dimatikan', 'Tekan Nyalakan untuk mengaktifkan kamera kembali.', 'videocam_off');
                     btnStart.classList.remove('hidden');
