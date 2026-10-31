@@ -1,15 +1,15 @@
 <!-- Header -->
 <div class="header-area bg-white dark:bg-[#0c1427] py-[13px] px-[20px] md:px-[25px] fixed top-0 z-[6] rounded-b-md transition-all" id="header-area">
-    <div class="md:flex md:items-center md:justify-between">
-        <div class="flex items-center justify-center md:justify-normal">
-            <div class="relative leading-none top-px ltr:mr-[13px] ltr:md:mr-[18px] ltr:lg:mr-[23px] rtl:ml-[13px] rtl:md:ml-[18px] rtl:lg:ml-[23px]">
+    <div class="flex flex-col gap-[10px] md:flex-row md:items-center md:justify-between md:gap-0">
+        <div class="flex w-full min-w-0 items-center md:w-auto">
+            <div class="relative shrink-0 leading-none top-px ltr:mr-[13px] ltr:md:mr-[18px] ltr:lg:mr-[23px] rtl:ml-[13px] rtl:md:ml-[18px] rtl:lg:ml-[23px]">
                 <button type="button" class="hide-sidebar-toggle transition-all inline-block hover:text-primary-500" id="hide-sidebar-toggle">
                     <i class="material-symbols-outlined !text-[20px]">
                         menu
                     </i>
                 </button>
             </div>
-            <div class="relative w-[250px] lg:w-[260px]">
+            <div class="relative min-w-0 flex-1 md:w-[260px] md:flex-none lg:w-[300px]">
                 <form action="{{ route('search.index') }}" method="GET" autocomplete="off">
                     <input type="text" name="q" id="global-search-input" value="{{ request()->routeIs('search.index') ? request('q') : '' }}" placeholder="Cari menu, barang, unit, transaksi..." class="bg-gray-50 border border-gray-50 h-[44px] rounded-md w-full block text-black pt-[11px] pb-[12px] px-[13px] md:px-[16px] placeholder:text-gray-500 outline-0 dark:bg-[#15203c] dark:text-white dark:border-[#15203c] dark:placeholder:text-gray-400">
                     <button type="submit" class="absolute text-primary-500 mt-[2px] ltr:right-[13px] ltr:md:right-[15px] rtl:left-[13px] rtl:md:left-[15px] top-1/2 -translate-y-1/2">
@@ -23,7 +23,7 @@
                 </div>
             </div>
         </div>
-        <ul class="flex items-center justify-center md:justify-normal mt-[13px] md:mt-0">
+        <ul class="flex shrink-0 items-center justify-center md:justify-normal">
             <li class="relative mx-[8px] md:mx-[10px] lg:mx-[12px] ltr:first:ml-0 ltr:last:mr-0 rtl:first:mr-0 rtl:last:ml-0">
                 <button type="button" class="light-dark-toggle leading-none inline-block transition-all relative top-[2px] text-[#fe7a36]" id="light-dark-toggle">
                     <i class="material-symbols-outlined !text-[20px] md:!text-[22px]">

@@ -29,10 +29,10 @@
             .scan-frame span::after {
                 content: '';
                 position: absolute;
-                width: 30px;
-                height: 30px;
-                border: 3px solid #ffffff;
-                filter: drop-shadow(0 0 6px rgba(96, 93, 255, .9));
+                width: 38px;
+                height: 38px;
+                border: 3px solid #8ea2ff;
+                filter: drop-shadow(0 0 8px rgba(96, 93, 255, .95));
             }
 
             .scan-frame::before { top: 0; left: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 14px; }
@@ -47,7 +47,7 @@
                 height: 2px;
                 background: linear-gradient(90deg, transparent, #9caaff, #605dff, #9caaff, transparent);
                 box-shadow: 0 0 14px rgba(96, 93, 255, 1);
-                animation: scanMove 2.2s ease-in-out infinite;
+                animation: scanMove 1.8s ease-in-out infinite;
             }
 
             @keyframes scanMove {
@@ -61,6 +61,31 @@
             }
 
             .status-dot-live { animation: pulseDot 1.4s ease-in-out infinite; }
+
+            .scan-frame {
+                border: 1px solid rgba(174, 187, 255, .35);
+                border-radius: 18px;
+                box-shadow: 0 0 0 999px rgba(4, 8, 21, .38), inset 0 0 32px rgba(96, 93, 255, .12);
+            }
+
+            .scan-guide {
+                position: absolute;
+                bottom: 14px;
+                left: 50%;
+                transform: translateX(-50%);
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                white-space: nowrap;
+                border: 1px solid rgba(255, 255, 255, .18);
+                border-radius: 999px;
+                background: rgba(8, 13, 31, .72);
+                padding: 6px 10px;
+                color: rgba(255, 255, 255, .88);
+                font-size: 11px;
+                font-weight: 600;
+                backdrop-filter: blur(8px);
+            }
 
             .history-scroll { max-height: 340px; overflow-y: auto; }
             .history-scroll::-webkit-scrollbar { width: 6px; }
@@ -138,9 +163,10 @@
                                         <p class="!mb-0 max-w-[320px] text-sm text-white/60">Izinkan akses kamera pada browser untuk mulai memindai.</p>
                                     </div>
 
-                                    <div id="scan-overlay" class="scan-frame pointer-events-none absolute inset-[6%] hidden transition-opacity">
+                                    <div id="scan-overlay" class="scan-frame pointer-events-none absolute inset-x-[10%] inset-y-[12%] hidden transition-opacity sm:inset-x-[14%]">
                                         <span></span>
                                         <div class="scan-laser"></div>
+                                        <div class="scan-guide"><i class="material-symbols-outlined !text-[15px]">center_focus_strong</i> Arahkan kode ke dalam bingkai</div>
                                     </div>
                                 </div>
 
@@ -154,8 +180,12 @@
                                 </div>
 
                                 <div class="mt-[18px] flex flex-col items-stretch justify-between gap-[12px] sm:flex-row sm:items-center">
-                                    <p class="!mb-0 text-sm text-gray-400">Sistem berbunyi sebagai tanda scan berhasil / gagal.</p>
+                                    <p class="!mb-0 text-sm text-gray-400">Deteksi penuh aktif — barcode kecil dekat maupun jauh dapat terbaca.</p>
                                     <div class="flex shrink-0 items-center gap-[10px]">
+                                        <button type="button" id="btn-torch" class="btn-glass hidden" title="Nyalakan senter kamera">
+                                            <i class="material-symbols-outlined !text-[20px]">flash_on</i>
+                                            Senter
+                                        </button>
                                         <button type="button" id="btn-start" class="btn-grad">
                                             <i class="material-symbols-outlined !text-[20px]">play_arrow</i>
                                             Nyalakan
@@ -283,6 +313,7 @@
                 const reader = document.getElementById('reader');
                 const btnStart = document.getElementById('btn-start');
                 const btnStop = document.getElementById('btn-stop');
+                const btnTorch = document.getElementById('btn-torch');
                 const zoomWrap = document.getElementById('zoom-wrap');
                 const zoomRange = document.getElementById('zoom-range');
                 const zoomValue = document.getElementById('zoom-value');
@@ -317,6 +348,7 @@
                 let lastCode = null;
                 let lastCodeTime = 0;
                 let toastTimer = null;
+                let torchEnabled = false;
 
                 function showToast(message, type) {
                     const colors = type === 'error'
@@ -546,7 +578,9 @@
 
                 function config() {
                     return {
-                        fps: 20,
+                        // Pembacaan cepat sekaligus seluruh area video; jangan memakai qrbox
+                        // agar barcode kecil/tidak tepat di tengah tetap terdeteksi.
+                        fps: 30,
                         aspectRatio: 1.777778,
                         disableFlip: true,
                         experimentalFeatures: {
@@ -606,6 +640,54 @@
                     }
                 }
 
+                async function optimizeCamera() {
+                    if (!html5QrCode || typeof html5QrCode.getRunningTrackCapabilities !== 'function' || typeof html5QrCode.applyVideoConstraints !== 'function') {
+                        return;
+                    }
+
+                    try {
+                        const capabilities = html5QrCode.getRunningTrackCapabilities() || {};
+                        const advanced = {};
+
+                        // Browser akan mengabaikan properti yang tidak didukung. Fokus berkelanjutan
+                        // membantu perpindahan cepat antara label dekat dan barcode jauh.
+                        if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes('continuous')) {
+                            advanced.focusMode = 'continuous';
+                        }
+                        if (Array.isArray(capabilities.exposureMode) && capabilities.exposureMode.includes('continuous')) {
+                            advanced.exposureMode = 'continuous';
+                        }
+                        if (Array.isArray(capabilities.whiteBalanceMode) && capabilities.whiteBalanceMode.includes('continuous')) {
+                            advanced.whiteBalanceMode = 'continuous';
+                        }
+
+                        if (Object.keys(advanced).length) {
+                            await html5QrCode.applyVideoConstraints({ advanced: [advanced] });
+                        }
+
+                        if (capabilities.torch) {
+                            btnTorch.classList.remove('hidden');
+                        }
+                    } catch (e) {
+                        // Optimasi ini opsional; scanner tetap berjalan di perangkat lama.
+                    }
+                }
+
+                async function toggleTorch() {
+                    if (!html5QrCode || typeof html5QrCode.applyVideoConstraints !== 'function') {
+                        return;
+                    }
+
+                    try {
+                        torchEnabled = !torchEnabled;
+                        await html5QrCode.applyVideoConstraints({ advanced: [{ torch: torchEnabled }] });
+                        btnTorch.innerHTML = '<i class="material-symbols-outlined !text-[20px]">' + (torchEnabled ? 'flash_off' : 'flash_on') + '</i>' + (torchEnabled ? ' Matikan senter' : ' Senter');
+                    } catch (e) {
+                        torchEnabled = false;
+                        showToast('Senter tidak dapat diaktifkan pada kamera ini.', 'error');
+                    }
+                }
+
                 zoomRange.addEventListener('input', async function () {
                     updateZoomLabel(this.value);
 
@@ -621,10 +703,17 @@
                 });
 
                 function cameraErrorMessage(error) {
-                    const name = error && error.name ? error.name : '';
+                    // html5-qrcode kadang membungkus DOMException menjadi Error biasa,
+                    // sehingga kode aslinya hanya tersisa di message.
+                    const name = error && error.name ? String(error.name) : '';
+                    const detail = [name, error?.message || '', String(error || '')].join(' ').toLowerCase();
 
-                    if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
-                        return 'Izin kamera diblokir. Klik ikon kunci (gembok) di address bar, pilih "Kamera: Izinkan", lalu muat ulang halaman.';
+                    if (detail.includes('notallowederror') || detail.includes('permissiondenied') || detail.includes('permission denied') || name === 'SecurityError') {
+                        if (window.self !== window.top) {
+                            return 'Akses kamera diblokir oleh halaman induk. Buka scanner di tab baru, atau tambahkan allow="camera" pada iframe.';
+                        }
+
+                        return 'Izin kamera belum diizinkan. Klik ikon gembok di address bar → Kamera → Izinkan, lalu tekan Nyalakan lagi. Jika sebelumnya memilih Blokir, ubah lewat Pengaturan Situs browser.';
                     }
 
                     if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
@@ -648,6 +737,7 @@
 
                 async function startWithFallback() {
                     const candidates = [
+                        { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
                         { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
                         { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
                         { facingMode: 'environment' },
@@ -734,6 +824,7 @@
                     try {
                         await startWithFallback();
                         setupZoom();
+                        await optimizeCamera();
 
                         setStatus('Kamera aktif', 'active');
                         showPlaceholder(false);
@@ -777,6 +868,9 @@
                     setStatus('Kamera mati', 'idle');
                     zoomWrap.classList.add('hidden');
                     zoomWrap.classList.remove('flex');
+                    torchEnabled = false;
+                    btnTorch.classList.add('hidden');
+                    btnTorch.innerHTML = '<i class="material-symbols-outlined !text-[20px]">flash_on</i> Senter';
                     scanOverlay.classList.add('hidden');
                     showPlaceholder(true, 'Kamera dimatikan', 'Tekan Nyalakan untuk mengaktifkan kamera kembali.', 'videocam_off');
                     btnStart.classList.remove('hidden');
@@ -854,6 +948,7 @@
 
                 btnStart.addEventListener('click', startCamera);
                 btnStop.addEventListener('click', stopCamera);
+                btnTorch.addEventListener('click', toggleTorch);
 
                 if (!isSecureEnough) {
                     secureContextAlert.classList.remove('hidden');

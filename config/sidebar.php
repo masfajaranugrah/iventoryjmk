@@ -3,57 +3,68 @@
 return [
     [
         'type' => 'section',
-        'name' => 'Apps & Pages',
+        'name' => 'Inventaris',
         'items' => [
             [
                 'type' => 'link',
                 'name' => 'Stok Barang',
-                'icon' => 'format_list_bulleted',
-                'url' => '/dashboard/stok-barang'
+                'icon' => 'inventory_2',
+                'url' => '/dashboard/stok-barang',
+            ],
+            [
+                'type' => 'link',
+                'name' => 'Unit & Barcode',
+                'icon' => 'barcode',
+                'url' => '/dashboard/barang-units',
             ],
             [
                 'type' => 'link',
                 'name' => 'Scan Barcode',
-                'icon' => 'date_range',
-                'url' => '/dashboard/scan-barcode'
+                'icon' => 'qr_code_scanner',
+                'url' => '/dashboard/scan-barcode',
             ],
-             [
+        ],
+    ],
+    [
+        'type' => 'section',
+        'name' => 'Transaksi',
+        'items' => [
+            [
                 'type' => 'link',
                 'name' => 'Stok Masuk',
-                'icon' => 'date_range',
-                'url' => '/dashboard/stok-masuk'
+                'icon' => 'move_to_inbox',
+                'url' => '/dashboard/stok-masuk',
             ],
-             [
+            [
                 'type' => 'link',
                 'name' => 'Stok Keluar',
-                'icon' => 'date_range',
-                'url' => '/dashboard/stok-keluar'
+                'icon' => 'outbox',
+                'url' => '/dashboard/stok-keluar',
             ],
-             [
+            [
                 'type' => 'link',
                 'name' => 'Riwayat Stok',
-                'icon' => 'date_range',
-                'url' => '/dashboard/riwayat'
+                'icon' => 'history',
+                'url' => '/dashboard/riwayat',
             ],
-             [
+        ],
+    ],
+    [
+        'type' => 'section',
+        'name' => 'Analisa',
+        'items' => [
+            [
+                'type' => 'link',
+                'name' => 'Stock Opname',
+                'icon' => 'fact_check',
+                'url' => '/dashboard/opname',
+            ],
+            [
                 'type' => 'link',
                 'name' => 'Laporan',
-                'icon' => 'date_range',
-                'url' => '/dashboard/laporan'
+                'icon' => 'summarize',
+                'url' => '/dashboard/laporan',
             ],
-             [
-                'type' => 'link',
-                'name' => 'opname',
-                'icon' => 'date_range',
-                'url' => '/dashboard/opname'
-            ],
-             [
-                'type' => 'link',
-                'name' => 'Unit & Barcode',
-                'icon' => 'date_range',
-                'url' => '/dashboard/barang-units'
-            ],
-            
-        ]
+        ],
     ],
 ];
