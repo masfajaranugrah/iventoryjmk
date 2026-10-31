@@ -90,6 +90,30 @@
             .history-scroll { max-height: 340px; overflow-y: auto; }
             .history-scroll::-webkit-scrollbar { width: 6px; }
             .history-scroll::-webkit-scrollbar-thumb { background: rgba(96, 93, 255, .35); border-radius: 999px; }
+
+            @media (max-width: 639px) {
+                #camera-wrap {
+                    height: min(62svh, 440px) !important;
+                    min-height: 330px;
+                }
+
+                #scan-overlay {
+                    inset: 10% 7% !important;
+                }
+
+                .scan-guide {
+                    bottom: 10px;
+                    max-width: calc(100% - 20px);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+
+                #btn-start,
+                #btn-stop,
+                #btn-torch {
+                    justify-content: center;
+                }
+            }
         </style>
     </head>
     <body>
@@ -350,6 +374,10 @@
                 let toastTimer = null;
                 let torchEnabled = false;
 
+                function isMobileScanner() {
+                    return window.matchMedia('(max-width: 639px), (pointer: coarse)').matches;
+                }
+
                 function showToast(message, type) {
                     const colors = type === 'error'
                         ? 'bg-danger-500 text-white'
@@ -577,11 +605,15 @@
                 }
 
                 function config() {
+                    const mobile = isMobileScanner();
+
                     return {
                         // Pembacaan cepat sekaligus seluruh area video; jangan memakai qrbox
                         // agar barcode kecil/tidak tepat di tengah tetap terdeteksi.
-                        fps: 30,
-                        aspectRatio: 1.777778,
+                        // 24 FPS di ponsel lebih stabil daripada memaksa 30 FPS, sehingga frame
+                        // yang benar-benar dianalisis tidak banyak terlewat saat CPU terbatas.
+                        fps: mobile ? 24 : 30,
+                        aspectRatio: mobile ? 1.333333 : 1.777778,
                         disableFlip: true,
                         experimentalFeatures: {
                             useBarCodeDetectorIfSupported: true,
@@ -736,10 +768,19 @@
                 }
 
                 async function startWithFallback() {
+                    // 1080p memberi keseimbangan terbaik pada ponsel: detail barcode tetap baik
+                    // tetapi autofocus dan decoder tidak tertinggal seperti saat meminta 4K.
+                    const highResolution = isMobileScanner()
+                        ? [
+                            { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+                            { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+                        ]
+                        : [
+                            { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
+                            { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+                        ];
                     const candidates = [
-                        { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
-                        { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-                        { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+                        ...highResolution,
                         { facingMode: 'environment' },
                         { facingMode: 'user' },
                     ];
